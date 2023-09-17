@@ -1,6 +1,7 @@
 import express from "express";
 import http from "http";
 import { WebSocketServer } from "ws";
+import sqlite from "sqlite3";
 
 const server = http.createServer();
 const app = express();
@@ -14,6 +15,16 @@ app.get("/", (req, res) => {
 server.on("request", app);
 
 server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+
+process.on("SIGINT", () => {
+  console.log("@@@@SIGINT");
+  wss.clients.forEach((client) => {
+    client.close();
+  });
+  server.close(() => {
+    shutDownDB();
+  });
+});
 
 /** WEB SOCKETS */
 
@@ -33,6 +44,14 @@ const connection = (ws) => {
     ws.send("Welcome to my server!");
   }
 
+  db.run(
+    `
+    INSERT INTO visitors (count, time) 
+    VALUES (?, datetime('now'))
+  `,
+    [numberOfClients]
+  );
+
   ws.on("close", close);
 };
 
@@ -45,3 +64,28 @@ const broadcast = (data) => {
 };
 
 wss.broadcast = broadcast;
+
+/** DATABASE */
+
+const db = new sqlite.Database(":memory:");
+
+db.serialize(() => {
+  db.run(`
+        CREATE TABLE IF NOT EXISTS visitors (
+            count INTEGER,
+            time TEXT
+        )
+    `);
+});
+
+const getCounts = () => {
+  db.each("SELECT * FROM visitors", (err, row) => {
+    console.log(row);
+  });
+};
+
+const shutDownDB = () => {
+  getCounts();
+  console.log("Shutting down db");
+  db.close();
+};
